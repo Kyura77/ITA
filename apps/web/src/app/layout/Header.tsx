@@ -36,14 +36,29 @@ export function Header({ collapsed, isDesktop, onToggleCollapsed, onToggleMobile
   const formattedDate = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date());
 
   return (
-    <header className={cn("fixed right-0 top-0 z-30 border-b border-white/5 bg-slate-950/55 backdrop-blur-2xl", collapsed ? "lg:left-[112px]" : "lg:left-[320px]")}>
+    <header
+      className={cn(
+        "fixed right-0 top-0 z-30 border-b border-white/5 bg-slate-950/55 backdrop-blur-2xl transition-all duration-300",
+        collapsed ? "lg:left-[112px]" : "lg:left-[320px]",
+      )}
+    >
       <div className="flex min-h-[94px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-10">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <button type="button" className="btn-secondary hidden lg:inline-flex" onClick={onToggleCollapsed}>
+            <button
+              type="button"
+              className="btn-secondary hidden lg:inline-flex transition-transform duration-300 hover:scale-110"
+              onClick={onToggleCollapsed}
+              title={collapsed ? "Expandir" : "Recolher"}
+            >
               {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
             </button>
-            <button type="button" className="btn-secondary lg:hidden" onClick={onToggleMobile}>
+            <button
+              type="button"
+              className="btn-secondary lg:hidden transition-transform duration-300 hover:scale-110"
+              onClick={onToggleMobile}
+              title="Abrir menu"
+            >
               <PanelLeftOpen className="h-4 w-4" />
             </button>
 
@@ -58,15 +73,29 @@ export function Header({ collapsed, isDesktop, onToggleCollapsed, onToggleMobile
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <button type="button" className="btn-secondary" onClick={onOpenCommandPalette}>
+            <button
+              type="button"
+              className="btn-secondary transition-all duration-200 hover:scale-105"
+              onClick={onOpenCommandPalette}
+              title="Abrir paleta de comandos"
+            >
               <Search className="h-4 w-4" />
               {keyboardHint}
             </button>
-            <Link to="/settings" className="btn-secondary hidden md:inline-flex">
+            <Link
+              to="/settings"
+              className="btn-secondary hidden md:inline-flex transition-all duration-200 hover:scale-105"
+              title="Ajustes"
+            >
               <Settings2 className="h-4 w-4" />
               Ajustes
             </Link>
-            <button type="button" className="btn-secondary" onClick={toggleTheme}>
+            <button
+              type="button"
+              className="btn-secondary transition-all duration-200 hover:scale-105"
+              onClick={toggleTheme}
+              title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+            >
               {theme === "dark" ? <SunMedium className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               {theme === "dark" ? "Claro" : "Escuro"}
             </button>
@@ -76,14 +105,34 @@ export function Header({ collapsed, isDesktop, onToggleCollapsed, onToggleMobile
         <div className="flex flex-wrap gap-2">
           {integrationQuery.data ? (
             <>
-              <StatusPill label="IA" value={getIntegrationValue("Ollama", integrationQuery.data.ai)} tone={getIntegrationTone(integrationQuery.data.ai)} detail={integrationQuery.data.ai.detail} compact />
-              <StatusPill label="Anki" value={getIntegrationValue("Anki", integrationQuery.data.anki)} tone={getIntegrationTone(integrationQuery.data.anki)} detail={integrationQuery.data.anki.detail} compact />
+              <StatusPill
+                label="IA"
+                value={getIntegrationValue("Ollama", integrationQuery.data.ai)}
+                tone={getIntegrationTone(integrationQuery.data.ai)}
+                detail={integrationQuery.data.ai.detail}
+                compact
+                animated
+              />
+              <StatusPill
+                label="Anki"
+                value={getIntegrationValue("Anki", integrationQuery.data.anki)}
+                tone={getIntegrationTone(integrationQuery.data.anki)}
+                detail={integrationQuery.data.anki.detail}
+                compact
+                animated
+              />
               <StatusPill label="Modo" value={isDesktop ? "app nativo" : "web local"} tone="slate" compact />
             </>
           ) : integrationQuery.isError ? (
-            <StatusPill label="API" value="diagnostico indisponivel" tone="rose" detail="A rota de status das integracoes nao respondeu." compact />
+            <StatusPill
+              label="API"
+              value="diagnostico indisponivel"
+              tone="rose"
+              detail="A rota de status das integracoes nao respondeu."
+              compact
+            />
           ) : (
-            <StatusPill label="Sistema" value="checando integracoes" tone="slate" compact />
+            <StatusPill label="Sistema" value="checando integracoes" tone="slate" compact animated />
           )}
         </div>
       </div>
