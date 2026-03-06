@@ -11,9 +11,10 @@
     "dev:api": "npm --workspace apps/api run dev",
     "build:web": "npm --workspace apps/web run build",
     "build:api": "npm --workspace apps/api run build",
+    "build:api:prod": "npm --workspace apps/api run build:prod",
     "prisma:generate": "npm --workspace apps/api run prisma:generate",
     "prisma:migrate": "npm --workspace apps/api run prisma:migrate",
-    "desktop": "npm --workspace apps/web run build && npm --workspace apps/desktop run dev",
+    "desktop": "npm --workspace apps/api run build:prod && npm --workspace apps/desktop run dev",
     "desktop:open": "npm run desktop"
   }
 }

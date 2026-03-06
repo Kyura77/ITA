@@ -5,8 +5,8 @@ const { spawn } = require("node:child_process");
 
 const ROOT_DIR = path.resolve(__dirname, "..", "..");
 const WEB_DIST = path.join(ROOT_DIR, "apps", "web", "dist", "index.html");
-const API_SRC = path.join(ROOT_DIR, "apps", "api", "src", "server.ts");
-const TSX_BIN = path.join(ROOT_DIR, "node_modules", ".bin", process.platform === "win32" ? "tsx.cmd" : "tsx");
+const API_DIST = path.join(ROOT_DIR, "apps", "api", "dist", "server.js");
+
 const HEALTH_URL = "http://127.0.0.1:3001/api/health";
 const ANKI_DIR = path.join(process.env.APPDATA || "", "Anki2");
 
@@ -43,20 +43,17 @@ async function ensureApiServer() {
     return;
   }
 
-  if (!fs.existsSync(TSX_BIN)) {
-    throw new Error("Nao encontrei o runtime tsx. Rode npm install na raiz do projeto.");
-  }
 
-  const apiEntry = process.platform === "win32" ? "src/server.ts" : API_SRC;
-  const binPath = path.join(ROOT_DIR, "node_modules", ".bin");
-  const command = process.platform === "win32" ? "tsx.cmd" : TSX_BIN;
+
+  const apiEntry = API_DIST;
+  const command = "node";
 
   apiProcess = spawn(command, [apiEntry], {
-    cwd: path.join(ROOT_DIR, "apps", "api"),
+    cwd: path.join(ROOT_DIR, "apps", "api", "dist"),
     env: {
       ...process.env,
       NODE_ENV: "production",
-      PATH: `${binPath}${path.delimiter}${process.env.PATH || ""}`,
+      PATH: process.env.PATH,
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -205,7 +202,9 @@ async function boot() {
   if (!fs.existsSync(WEB_DIST)) {
     throw new Error("Nao encontrei o build do frontend. Rode npm --workspace apps/web run build.");
   }
-
+  if (!fs.existsSync(API_DIST)) {
+    throw new Error("Nao encontrei o build da API. Rode npm --workspace apps/api run build:prod.");
+  }
   await ensureApiServer();
   buildMenu();
   createWindow();
