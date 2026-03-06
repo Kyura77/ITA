@@ -1,4 +1,4 @@
-﻿import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { execFile } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import { access, readdir, rm, writeFile } from "node:fs/promises";
@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { titleCase } from "../lib/domain";
+import { addFlashcardsToQueue, processAnkiQueue } from "./ankiQueue";
 
 type DirectCollectionProbe = {
   ok: boolean;
@@ -35,10 +36,10 @@ type ResolvedCollection = { collectionPath: string; profileName: string };
 
 const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-function buildNote(card: { front: string; back: string; ankiDeck: string; type: string; id: string }) {
+export function buildNote(card: { front: string; back: string; ankiDeck: string; type: string; id: string }) {
   return {
     deckName: card.ankiDeck,
-    modelName: "Basic",
+    modelName: "Basic", // Assuming 'Basic' model is always used as per AnkiConnect default
     fields: { Front: card.front, Back: card.back },
     options: { allowDuplicate: false, duplicateScope: "deck" },
     tags: ["ita-prep", titleCase(card.type).replace(/\s+/g, "-").toLowerCase(), card.id],
@@ -176,7 +177,7 @@ async function runCollectionHelper<T>(payload: Record<string, unknown>): Promise
   }
 }
 
-async function ankiRequest(settings: { ankiConnectUrl: string }, body: unknown) {
+export async function ankiRequest(settings: { ankiConnectUrl: string }, body: unknown) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
@@ -296,109 +297,14 @@ export async function syncFlashcardsWithMode(
     }
     return { syncedCount, duplicateCount, pendingCount: Math.max(0, flashcards.length - syncedCount), performed: syncedCount > 0, errors: [] as string[], mode: "real" as const };
   } catch (ankiConnectError) {
-    try {
-      const directResult = await syncFlashcardsDirect(flashcards);
-      const byId = new Map(flashcards.map((card) => [card.id, card]));
-      let syncedCount = 0;
-      let duplicateCount = 0;
-      const errors: string[] = [];
-
-      for (const item of directResult.results ?? []) {
-        const card = byId.get(item.cardId);
-        if (!card) continue;
-
-        if (item.status === "added") {
-          syncedCount += 1;
-          await prisma.flashcard.update({ where: { id: card.id }, data: { synced: true, ankiNoteId: item.noteId == null ? null : String(item.noteId) } });
-          continue;
-        }
-
-        if (item.status === "existing") {
-          duplicateCount += 1;
-          await prisma.flashcard.update({ where: { id: card.id }, data: { synced: true, ankiNoteId: item.noteId == null ? null : String(item.noteId) } });
-          continue;
-        }
-
-        errors.push(item.error ?? `ERR_ANKI_COLLECTION_CARD_${item.cardId}`);
-      }
-
-      return {
-        syncedCount,
-        duplicateCount,
-        pendingCount: Math.max(0, flashcards.length - syncedCount - duplicateCount),
-        performed: syncedCount + duplicateCount > 0,
-        errors,
-        mode: "real" as const,
-      };
-    } catch (directError) {
-      return {
-        syncedCount: 0,
-        duplicateCount: 0,
-        pendingCount: flashcards.length,
-        performed: false,
-        errors: [ankiConnectError instanceof Error ? ankiConnectError.message : "ERR_ANKI_API", directError instanceof Error ? directError.message : "ERR_ANKI_COLLECTION_SYNC"],
-        mode: "real" as const,
-      };
-    }
+    console.warn("AnkiConnect failed, adding to offline queue:", ankiConnectError);
+    await addFlashcardsToQueue(flashcards);
+    return { syncedCount: 0, duplicateCount: 0, pendingCount: flashcards.length, performed: false, errors: ["ANKI_CONNECT_FAILED_QUEUED"], mode: "real" as const };
   }
 }
 
-export async function runAnkiSelfTest(settings: { ankiMode: string; ankiConnectUrl: string }) {
-  if (settings.ankiMode !== "real") {
-    return {
-      ok: false,
-      mode: "stub" as const,
-      provider: "stub" as const,
-      detail: "Anki em modo stub. Salve em real para validar a integracao.",
-      responseMs: null,
-      profileName: null,
-      noteCount: null,
-      version: null,
-    };
-  }
-
-  const startedAt = Date.now();
-
-  try {
-    const payload = (await ankiRequest(settings, { action: "version", version: 6 })) as { result?: number };
-
-    return {
-      ok: true,
-      mode: "real" as const,
-      provider: "ankiconnect" as const,
-      detail: `AnkiConnect respondeu com versao ${typeof payload.result === "number" ? payload.result : "desconhecida"}.`,
-      responseMs: Date.now() - startedAt,
-      profileName: null,
-      noteCount: null,
-      version: typeof payload.result === "number" ? payload.result : null,
-    };
-  } catch (error) {
-    const direct = await probeAnkiCollection();
-
-    if (direct.available) {
-      const suffix = direct.profileName ? ` Perfil: ${direct.profileName}.` : "";
-      return {
-        ok: true,
-        mode: "real" as const,
-        provider: "collection" as const,
-        detail: `AnkiConnect offline, mas a colecao local esta pronta para sync direto.${suffix}`,
-        responseMs: Date.now() - startedAt,
-        profileName: direct.profileName ?? null,
-        noteCount: direct.noteCount ?? null,
-        version: null,
-      };
-    }
-
-    const reason = direct.error ?? (error instanceof Error ? error.message : "ERR_ANKI_OFFLINE");
-    return {
-      ok: false,
-      mode: "real" as const,
-      provider: "none" as const,
-      detail: `Falha ao validar o Anki: ${reason}`,
-      responseMs: Date.now() - startedAt,
-      profileName: null,
-      noteCount: null,
-      version: null,
-    };
-  }
+// This function should be called periodically, e.g., via a cron job or a long-running process
+export async function startAnkiQueueProcessor(prisma: PrismaClient, settings: { ankiConnectUrl: string }) {
+  // For demonstration, we'll just process it once. In a real app, this would be a loop.
+  await processAnkiQueue(prisma, settings);
 }

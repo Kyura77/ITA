@@ -1,4 +1,4 @@
-﻿import { stableStubScore, djb2Hash } from "../lib/domain";
+import { stableStubScore, djb2Hash } from "../lib/domain";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -49,13 +49,13 @@ export function buildErrorAnalysisPrompt(context: string) {
 
 export function buildCardsPrompt(textChunk: string) {
   return [
-    "Retorne SOMENTE um JSON array minificado com exatamente 2 flashcards sobre o tema abaixo.",
-    textChunk,
-    "Cada item deve ter campos: type, front, back, references, difficulty.",
-    "Use type em conceito, formula, mecanismo ou erro_recorrente.",
-    "Cada back deve ter no maximo 120 caracteres.",
-    "Sem explicacao extra.",
-  ].join(" ");
+    "[IA_CARDS — gerar flashcards nivel ITA]",
+    `Receba: ${textChunk}; gere um JSON array de ate N=8 cards com campos:`, 
+    "[{ \"type\": \"conceito|formula|mecanismo|erro_recorrente\", \"front\": \"pergunta curta\",",
+    "   \"back\": \"resposta detalhada com condicoes de aplicabilidade e exemplo\",",
+    "   \"references\":[{\"bookId,pageRange\"}], \"difficulty\":\"easy|medium|hard\" }]",
+    "Output: JSON only.",
+  ].join("\n");
 }
 
 export function buildFeynmanPrompt(topic: string, explanation: string) {
@@ -81,9 +81,9 @@ async function callOllama(
 ) {
   const baseUrl = settings.ollamaUrl.replace(/\/$/, "");
 
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25_000);
+    const timeout = setTimeout(() => controller.abort(), 60_000);
 
     try {
       const response = await fetch(`${baseUrl}/v1/completions`, {
@@ -113,10 +113,10 @@ async function callOllama(
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error("ERR_IA_TIMEOUT");
       }
-      if (attempt === 2) {
+      if (attempt === 3) {
         throw new Error("ERR_IA_OFFLINE");
       }
-      await sleep(1_500 * Math.pow(2, attempt - 1));
+      await sleep(2_000 * Math.pow(2, attempt - 1));
     } finally {
       clearTimeout(timeout);
     }
@@ -310,4 +310,26 @@ export async function runAiSelfTest(settings: { aiMode: string; ollamaUrl: strin
   }
 }
 
+export function buildChapterSummaryPrompt(chapterText: string) {
+  return [
+    "[IA_SUMMARY — resumo de capitulo]",
+    `Texto: ${chapterText}`,
+    "Gere um resumo estruturado em Markdown com:",
+    "1) CONCEITOS_PRINCIPAIS: bullet list dos 5-10 conceitos mais importantes",
+    "2) FORMULAS: lista com cada formula, variaveis e unidades",
+    "3) ARMADILHAS_ITA: erros comuns que o ITA explora neste tema",
+    "4) EXERCICIOS_MODELO: 2 exercicios representativos com solucao",
+    "Output: Markdown.",
+  ].join("\n");
+}
 
+export function buildExtractTocPrompt(tocText: string) {
+  return [
+    "[IA_TOC — extrair indice]",
+    `Texto do indice do livro: ${tocText}`,
+    "Extraia a estrutura em JSON:",
+    "{ \"chapters\": [{ \"number\": 1, \"title\": \"...\",",
+    "  \"sections\": [{ \"number\": \"1.1\", \"title\": \"...\" }] }] }",
+    "Output: JSON only.",
+  ].join("\n");
+}
