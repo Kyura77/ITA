@@ -1,4 +1,3 @@
-import type { PrismaClient } from "@prisma/client";
 import { execFile } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import { access, readdir, rm, writeFile } from "node:fs/promises";
@@ -49,145 +48,72 @@ export function buildNote(card: { front: string; back: string; ankiDeck: string;
   };
 }
 
-async function fileExists(target: string | null | undefined) {
-  if (!target) return false;
-  try {
-    await access(target, fsConstants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function resolveHelperScriptPath() {
-  const candidates = [
-    process.env.ANKI_SYNC_HELPER_PATH,
-    path.join(process.cwd(), "apps", "api", "scripts", "anki_collection_sync.py"),
-    path.join(process.cwd(), "scripts", "anki_collection_sync.py"),
-    path.resolve(THIS_DIR, "../../scripts/anki_collection_sync.py"),
-  ];
-
-  for (const candidate of candidates) {
-    if (await fileExists(candidate)) {
-      return candidate as string;
-    }
-  }
-
-  throw new Error("ERR_ANKI_COLLECTION_HELPER_NOT_FOUND");
-}
-
-async function resolveAnkiPythonPath() {
-  const candidates = [
-    process.env.ANKI_PYTHON_EXE,
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Programs", "Anki", ".venv", "Scripts", "python.exe") : null,
-  ];
-
-  for (const candidate of candidates) {
-    if (await fileExists(candidate)) {
-      return candidate as string;
-    }
-  }
-
-  throw new Error("ERR_ANKI_PYTHON_NOT_FOUND");
-}
-
 async function resolveCollectionPath(): Promise<ResolvedCollection | null> {
-  const envPath = process.env.ANKI_COLLECTION_PATH;
-  if (await fileExists(envPath)) {
-    return { collectionPath: envPath as string, profileName: path.basename(path.dirname(envPath as string)) };
-  }
+  const homeDir = os.homedir();
+  const ankiDir = path.join(homeDir, "Anki2");
 
-  const baseDir = process.env.APPDATA ? path.join(process.env.APPDATA, "Anki2") : null;
-  if (!(await fileExists(baseDir))) {
+  try {
+    await access(ankiDir, fsConstants.R_OK);
+  } catch {
     return null;
   }
 
-  const preferredProfiles = [process.env.ANKI_PROFILE_NAME, "Usuario 1", "User 1", "Usuário 1"].filter(
-    (value): value is string => typeof value === "string" && value.trim().length > 0,
-  );
+  const profiles = await readdir(ankiDir);
+  const userProfile = profiles.find((p) => p !== "addons21" && p !== "backups");
 
-  for (const profileName of preferredProfiles) {
-    const candidate = path.join(baseDir as string, profileName, "collection.anki2");
-    if (await fileExists(candidate)) {
-      return { collectionPath: candidate, profileName };
-    }
+  if (!userProfile) {
+    return null;
   }
 
-  const entries = await readdir(baseDir as string, { withFileTypes: true });
-  const blocked = new Set(["addons21", "logs"]);
-  const candidates: ResolvedCollection[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory() || blocked.has(entry.name) || entry.name.startsWith(".")) continue;
-    const candidate = path.join(baseDir as string, entry.name, "collection.anki2");
-    if (await fileExists(candidate)) {
-      candidates.push({ collectionPath: candidate, profileName: entry.name });
-    }
-  }
-
-  candidates.sort((left, right) => left.profileName.localeCompare(right.profileName));
-  return candidates[0] ?? null;
-}
-
-function parseHelperOutput<T>(raw: string): T {
-  const line = raw
-    .split(/\r?\n/)
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .at(-1);
-
-  if (!line) {
-    throw new Error("ERR_ANKI_COLLECTION_EMPTY_RESPONSE");
-  }
+  const collectionPath = path.join(ankiDir, userProfile, "collection.anki2");
 
   try {
-    return JSON.parse(line) as T;
+    await access(collectionPath, fsConstants.R_OK);
+    return { collectionPath, profileName: userProfile };
   } catch {
-    throw new Error(`ERR_ANKI_COLLECTION_BAD_JSON:${line.slice(0, 300)}`);
+    return null;
   }
 }
 
-async function runCollectionHelper<T>(payload: Record<string, unknown>): Promise<T> {
-  const pythonPath = await resolveAnkiPythonPath();
-  const helperPath = await resolveHelperScriptPath();
-  const tempPath = path.join(os.tmpdir(), `ita-anki-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+async function runCollectionHelper<T>(payload: unknown): Promise<T> {
+  const scriptPath = path.join(THIS_DIR, "..", "scripts", "anki_collection_sync.py");
 
-  await writeFile(tempPath, JSON.stringify(payload), "utf8");
+  return new Promise((resolve, reject) => {
+    const process = execFile("python3", [scriptPath], { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`Script error: ${stderr || error.message}`));
+        return;
+      }
 
-  try {
-    const output = await new Promise<string>((resolve, reject) => {
-      execFile(
-        pythonPath,
-        [helperPath, tempPath],
-        { encoding: "utf8", timeout: 20_000, maxBuffer: 8 * 1024 * 1024 },
-        (error, stdout, stderr) => {
-          const combined = [stdout, stderr].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join("\n").trim();
-          if (error) {
-            reject(new Error(combined || error.message));
-            return;
-          }
-          resolve(combined);
-        },
-      );
+      try {
+        const result = JSON.parse(stdout) as T;
+        resolve(result);
+      } catch {
+        reject(new Error(`Invalid JSON response: ${stdout}`));
+      }
     });
 
-    return parseHelperOutput<T>(output);
-  } finally {
-    await rm(tempPath, { force: true }).catch(() => null);
-  }
+    process.stdin?.write(JSON.stringify(payload));
+    process.stdin?.end();
+  });
 }
 
 export async function ankiRequest(settings: { ankiConnectUrl: string }, body: unknown) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeout = setTimeout(() => {
+    throw new Error("AnkiConnect timeout after 30s");
+  }, 30_000);
+
   try {
     const response = await fetch(settings.ankiConnectUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify(body),
     });
-    if (!response.ok) throw new Error(`ERR_ANKI_HTTP_${response.status}`);
+
+    if (!response.ok) {
+      throw new Error(`AnkiConnect returned ${response.status}`);
+    }
+
     const data = (await response.json()) as { result: unknown; error: string | null };
     if (data.error) throw new Error(data.error);
     return data;
@@ -196,7 +122,7 @@ export async function ankiRequest(settings: { ankiConnectUrl: string }, body: un
   }
 }
 
-async function syncFlashcardsDirect(flashcards: Array<{ id: string; front: string; back: string; ankiDeck: string; type: string }>) {
+export async function syncFlashcardsDirect(flashcards: Array<{ id: string; front: string; back: string; ankiDeck: string; type: string }>) {
   const resolved = await resolveCollectionPath();
   if (!resolved) {
     throw new Error("ERR_ANKI_COLLECTION_NOT_FOUND");
@@ -248,15 +174,10 @@ export async function probeAnkiCollection() {
       collectionPath: payload.collectionPath ?? resolved.collectionPath,
       profileName: payload.profileName ?? resolved.profileName,
       noteCount: payload.noteCount ?? null,
-      currentModel: payload.currentModel ?? null,
     };
   } catch (error) {
-    return {
-      available: false,
-      error: error instanceof Error ? error.message : "ERR_ANKI_COLLECTION_PROBE",
-      collectionPath: null,
-      profileName: null,
-    };
+    const reason = error instanceof Error ? error.message : "ERR_ANKI_COLLECTION_PROBE";
+    return { available: false, error: reason, collectionPath: null, profileName: null };
   }
 }
 
@@ -265,46 +186,103 @@ export async function proxyAnki(settings: { ankiConnectUrl: string }, body: unkn
 }
 
 export async function syncFlashcardsWithMode(
-  prisma: PrismaClient,
-  settings: { ankiMode: string; ankiConnectUrl: string },
+  mode: string,
+  settings: { ankiConnectUrl: string },
   flashcards: Array<{ id: string; front: string; back: string; ankiDeck: string; type: string }>,
 ) {
-  if (!flashcards.length) {
-    return { syncedCount: 0, duplicateCount: 0, pendingCount: 0, performed: false, errors: [] as string[], mode: settings.ankiMode === "real" ? ("real" as const) : ("stub" as const) };
-  }
-  if (settings.ankiMode !== "real") {
-    return { syncedCount: 0, duplicateCount: 0, pendingCount: flashcards.length, performed: false, errors: ["ANKI_STUB_MODE"], mode: "stub" as const };
+  if (mode !== "real") {
+    return { syncedCount: 0, duplicateCount: 0, pendingCount: flashcards.length, performed: false, errors: [], mode: "stub" as const };
   }
 
   try {
-    const decks = [...new Set(flashcards.map((card) => card.ankiDeck))];
-    for (const deck of decks) {
-      await ankiRequest(settings, { action: "createDeck", version: 6, params: { deck } });
+    const response = await ankiRequest(settings, {
+      action: "addNotes",
+      notes: flashcards.map((card) => buildNote(card)),
+    });
+
+    if (Array.isArray(response.result)) {
+      const syncedCount = response.result.filter((id) => id !== null).length;
+      const duplicateCount = response.result.filter((id) => id === null).length;
+
+      return {
+        syncedCount,
+        duplicateCount,
+        pendingCount: 0,
+        performed: true,
+        errors: [],
+        mode: "real" as const,
+      };
     }
-    const response = (await ankiRequest(settings, { action: "addNotes", version: 6, params: { notes: flashcards.map(buildNote) } })) as { result: Array<number | null> };
-    const results = Array.isArray(response.result) ? response.result : [];
-    let syncedCount = 0;
-    let duplicateCount = 0;
-    for (const [index, result] of results.entries()) {
-      const card = flashcards[index];
-      if (!card) continue;
-      if (typeof result === "number") {
-        syncedCount += 1;
-        await prisma.flashcard.update({ where: { id: card.id }, data: { synced: true, ankiNoteId: String(result) } });
-      } else {
-        duplicateCount += 1;
-      }
-    }
-    return { syncedCount, duplicateCount, pendingCount: Math.max(0, flashcards.length - syncedCount), performed: syncedCount > 0, errors: [] as string[], mode: "real" as const };
-  } catch (ankiConnectError) {
-    console.warn("AnkiConnect failed, adding to offline queue:", ankiConnectError);
+
+    throw new Error("Invalid response from AnkiConnect");
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "ERR_ANKI_SYNC";
     await addFlashcardsToQueue(flashcards);
-    return { syncedCount: 0, duplicateCount: 0, pendingCount: flashcards.length, performed: false, errors: ["ANKI_CONNECT_FAILED_QUEUED"], mode: "real" as const };
+
+    return {
+      syncedCount: 0,
+      duplicateCount: 0,
+      pendingCount: flashcards.length,
+      performed: false,
+      errors: [reason],
+      mode: "real" as const,
+    };
   }
 }
 
-// This function should be called periodically, e.g., via a cron job or a long-running process
-export async function startAnkiQueueProcessor(prisma: PrismaClient, settings: { ankiConnectUrl: string }) {
-  // For demonstration, we'll just process it once. In a real app, this would be a loop.
-  await processAnkiQueue(prisma, settings);
+export async function startAnkiQueueProcessor(prisma: unknown, settings: { ankiConnectUrl: string }) {
+  // Placeholder for queue processor
+  if (prisma) {
+    await processAnkiQueue(prisma as any, settings);
+  }
+}
+
+export async function runAnkiSelfTest(settings: { ankiMode: string; ankiConnectUrl: string }) {
+  if (settings.ankiMode !== "real") {
+    return {
+      ok: false,
+      mode: "stub" as const,
+      method: "stub" as const,
+      detail: "Anki em modo stub. Salve em real para validar a conexao.",
+      deckCount: null,
+      responseMs: null,
+    };
+  }
+
+  const startedAt = Date.now();
+
+  try {
+    const response = await ankiRequest(settings, { action: "deckNames" });
+
+    if (Array.isArray(response.result) && response.result.length > 0) {
+      return {
+        ok: true,
+        mode: "real" as const,
+        method: "ankiconnect" as const,
+        detail: `AnkiConnect respondeu com ${response.result.length} baralhos.`,
+        deckCount: response.result.length,
+        responseMs: Date.now() - startedAt,
+      };
+    }
+
+    return {
+      ok: false,
+      mode: "real" as const,
+      method: "ankiconnect" as const,
+      detail: "AnkiConnect nao devolveu baralhos no teste.",
+      deckCount: null,
+      responseMs: Date.now() - startedAt,
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "ERR_ANKI_OFFLINE";
+
+    return {
+      ok: false,
+      mode: "real" as const,
+      method: "ankiconnect" as const,
+      detail: `Falha no teste de conexao: ${reason}`,
+      deckCount: null,
+      responseMs: Date.now() - startedAt,
+    };
+  }
 }

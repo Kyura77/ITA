@@ -522,7 +522,7 @@ app.post("/api/flashcards/sync-anki", async (request) => {
     return { syncedCount: 0, duplicateCount: 0, pendingCount: flashcards.length, performed: false, errors: [], mode: settings.ankiMode };
   }
 
-  return syncFlashcardsWithMode(prisma, settings, flashcards);
+  return syncFlashcardsWithMode(settings.ankiMode, settings, flashcards);
 });
 
 app.get("/api/exams", async (request) => {
