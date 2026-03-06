@@ -1,0 +1,33 @@
+{
+    "name":  "web",
+    "version":  "1.0.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "vite --config vite.config.ts",
+                    "build":  "tsc -p tsconfig.json \u0026\u0026 vite build --config vite.config.ts"
+                },
+    "dependencies":  {
+                         "@tanstack/react-query":  "^5.84.1",
+                         "framer-motion":  "^11.16.4",
+                         "lucide-react":  "^0.475.0",
+                         "react":  "^18.3.1",
+                         "react-dom":  "^18.3.1",
+                         "react-hook-form":  "^7.54.2",
+                         "react-markdown":  "^9.0.1",
+                         "react-router-dom":  "^6.26.0",
+                         "recharts":  "^2.15.4",
+                         "sonner":  "^2.0.1",
+                         "zod":  "^3.24.2"
+                     },
+    "devDependencies":  {
+                            "@types/react":  "^18.3.5",
+                            "@types/react-dom":  "^18.3.0",
+                            "@vitejs/plugin-react-swc":  "^3.7.0",
+                            "autoprefixer":  "^10.4.20",
+                            "postcss":  "^8.4.47",
+                            "tailwindcss":  "^3.4.13",
+                            "typescript":  "^5.6.2",
+                            "vite":  "^5.4.8"
+                        }
+}

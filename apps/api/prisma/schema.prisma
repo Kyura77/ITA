@@ -1,0 +1,335 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+enum Subject {
+  matematica
+  fisica
+  quimica
+  calculo
+  geral
+}
+
+enum BookPhase {
+  base
+  aprofundamento
+}
+
+enum BookPriority {
+  essencial
+  recomendado
+  opcional
+}
+
+enum BookStatus {
+  nao_iniciado
+  em_andamento
+  concluido
+}
+
+enum TopicStatus {
+  nao_iniciado
+  em_andamento
+  base_concluida
+  aprofundando
+  dominado
+}
+
+enum TopicPriorityIta {
+  baixa
+  media
+  alta
+  critica
+}
+
+enum ErrorSource {
+  livro_exercicio
+  prova_afa
+  prova_ime
+  prova_ita
+  simulado
+  olimpiada
+}
+
+enum GapType {
+  conceito_errado
+  formula_esquecida
+  mecanismo_nao_visto
+  conta_incorreta
+  aplicacao_incompleta
+  outro
+}
+
+enum Severity {
+  leve
+  moderada
+  grave
+}
+
+enum FlashcardType {
+  conceito
+  formula
+  reacao_quimica
+  nomenclatura
+  mecanismo
+  erro_recorrente
+}
+
+enum FlashcardOrigin {
+  ia_gerada
+  manual
+}
+
+enum ExamBoard {
+  AFA
+  IME_1fase
+  IME_2fase
+  ITA_1fase
+  ITA_2fase
+  FUVEST
+  UNICAMP
+  OBMEP
+  OBF
+  OBQ
+}
+
+enum ExamStatus {
+  planejada
+  realizada
+}
+
+enum StudySessionType {
+  teoria
+  exercicios
+  revisao
+  prova
+  olimpiada
+}
+
+enum OlympiadType {
+  OBMEP
+  OBF
+  OBQ
+  OBM
+  OBI
+  OBFEP
+  outra
+}
+
+enum OlympiadMedal {
+  nenhuma
+  honra_ao_merito
+  bronze
+  prata
+  ouro
+}
+
+enum OlympiadStatus {
+  inscrito
+  realizada
+  resultado
+}
+
+enum Theme {
+  light
+  dark
+}
+
+enum IntegrationMode {
+  stub
+  real
+}
+
+model Book {
+  id               String       @id
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  createdBy        String?
+  title            String
+  author           String
+  subject          Subject
+  phase            BookPhase
+  priority         BookPriority @default(recomendado)
+  status           BookStatus   @default(nao_iniciado)
+  progressPercent  Int          @default(0)
+  notes            String?
+  defaultAnkiDeck  String?
+  recommendedOrder String?
+  baseTopics       Topic[]      @relation("TopicBaseBook")
+  advancedTopics   Topic[]      @relation("TopicAdvancedBook")
+  sessions         StudySession[]
+  flashcards       Flashcard[]
+  errors           ConceptualError[]
+}
+
+model Topic {
+  id                String           @id
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  createdBy         String?
+  subject           Subject
+  area              String
+  topic             String
+  subtopic          String?
+  bookBaseId        String?
+  bookAdvancedId    String?
+  status            TopicStatus      @default(nao_iniciado)
+  yearPlan          Int              @default(1)
+  priorityIta       TopicPriorityIta @default(media)
+  startDate         String?
+  lastReviewedAt    String?
+  totalStudyMinutes Int              @default(0)
+  forOlympiad       Boolean          @default(false)
+  ankiDeck          String?
+  notes             String?
+  prerequisites     String?
+  bookBase          Book?            @relation("TopicBaseBook", fields: [bookBaseId], references: [id], onDelete: SetNull)
+  bookAdvanced      Book?            @relation("TopicAdvancedBook", fields: [bookAdvancedId], references: [id], onDelete: SetNull)
+  errors            ConceptualError[]
+  flashcards        Flashcard[]
+  studySessions     StudySession[]
+  feynmanSessions   FeynmanSession[]
+}
+
+model ConceptualError {
+  id             String      @id
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  createdBy      String?
+  date           String?
+  topicId        String?
+  bookId         String?
+  descriptionGap String
+  context        String
+  source         ErrorSource
+  gapType        GapType
+  severity       Severity
+  resolved       Boolean     @default(false)
+  iaAnalysis     String?
+  cardsGenerated Boolean     @default(false)
+  topic          Topic?      @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  book           Book?       @relation(fields: [bookId], references: [id], onDelete: SetNull)
+  flashcards     Flashcard[]
+}
+
+model Flashcard {
+  id         String           @id
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  createdBy  String?
+  topicId    String?
+  bookId     String?
+  errorId    String?
+  front      String
+  back       String
+  type       FlashcardType
+  origin     FlashcardOrigin
+  ankiNoteId String?
+  ankiDeck   String
+  synced     Boolean          @default(false)
+  hash       String           @unique
+  topic      Topic?           @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  book       Book?            @relation(fields: [bookId], references: [id], onDelete: SetNull)
+  error      ConceptualError? @relation(fields: [errorId], references: [id], onDelete: SetNull)
+}
+
+model Exam {
+  id                         String     @id
+  createdAt                  DateTime   @default(now())
+  updatedAt                  DateTime   @updatedAt
+  createdBy                  String?
+  name                       String
+  board                      ExamBoard
+  year                       Int
+  recommendedPeriodStartYear Int?
+  dateReal                   String?
+  timeAvailableMin           Int?
+  timeUsedMin                Int?
+  percentTime                Float?
+  score                      Float?
+  scoreMax                   Float?
+  percentCorrect             Float?
+  status                     ExamStatus @default(planejada)
+  notes                      String?
+}
+
+model StudySession {
+  id              String            @id
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  createdBy       String?
+  topicId         String?
+  topicName       String
+  bookId          String?
+  date            String?
+  durationMinutes Int
+  pomodoroCount   Int               @default(0)
+  type            StudySessionType?
+  notes           String?
+  quality         Int?
+  topic           Topic?            @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  book            Book?             @relation(fields: [bookId], references: [id], onDelete: SetNull)
+}
+
+model Olympiad {
+  id        String         @id
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  createdBy String?
+  name      String
+  type      OlympiadType
+  year      Int
+  phase     String?
+  date      String?
+  score     Float?
+  scoreMax  Float?
+  medal     OlympiadMedal?
+  status    OlympiadStatus @default(inscrito)
+  notes     String?
+}
+
+model FeynmanSession {
+  id            String    @id
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String?
+  topicId       String?
+  topicName     String
+  explanation   String
+  iaScore       Float?
+  iaFeedback    String?
+  approved      Boolean   @default(false)
+  attemptNumber Int       @default(1)
+  date          String?
+  topic         Topic?    @relation(fields: [topicId], references: [id], onDelete: SetNull)
+}
+
+model AppSettings {
+  id                     String          @id @default("app-settings")
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  theme                  Theme           @default(dark)
+  pomodoroWork           Int             @default(25)
+  pomodoroBreak          Int             @default(5)
+  pomodoroLongBreak      Int             @default(15)
+  pomodoroSetsBeforeLong Int             @default(4)
+  ollamaUrl              String          @default("http://localhost:11434")
+  ollamaModel            String          @default("qwen2.5:14b")
+  ankiConnectUrl         String          @default("http://localhost:8765")
+  seeded                 Boolean         @default(false)
+  aiMode                 IntegrationMode @default(stub)
+  ankiMode               IntegrationMode @default(stub)
+}
+
+model ProjectConfig {
+  id        String   @id @default("project-config")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  json      String
+}
+

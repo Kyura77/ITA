@@ -1,0 +1,2 @@
+export function nullableString(value: unknown) { if (typeof value !== "string") return value ?? null; const trimmed = value.trim(); return trimmed ? trimmed : null; }
+export function normalizeNullableFields<T extends Record<string, unknown>>(payload: T, fields: Array<keyof T>) { const normalized = { ...payload }; fields.forEach((field) => { normalized[field] = nullableString(normalized[field]) as T[keyof T]; }); return normalized; }

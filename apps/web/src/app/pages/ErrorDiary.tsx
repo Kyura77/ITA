@@ -1,0 +1,35 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { TriangleAlert } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { ErrorCard } from "@/components/errors/ErrorCard";
+import { ErrorState, LoadingState } from "@/components/shared/StatePanel";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { StatusPill } from "@/components/shared/StatusPill";
+import { normalizeNullableFields } from "@/lib/forms";
+import { getIntegrationTone, getIntegrationValue } from "@/lib/integrations";
+import { api, ApiError } from "@/services/apiClient";
+import type { ConceptualError, IntegrationStatus } from "@/types/entities";
+import { ErrorFormDialog } from "@/components/errors/ErrorFormDialog";
+export default function ErrorDiaryPage() {
+  const queryClient = useQueryClient();
+  const [filters, setFilters] = useState({ resolved: "", severity: "", source: "", q: "" });
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<ConceptualError | null>(null);
+  const errorsQuery = useQuery({ queryKey: ["errors", filters], queryFn: () => api.get<ConceptualError[]>("/errors", filters) });
+  const integrationQuery = useQuery({ queryKey: ["integrations-status"], queryFn: () => api.get<IntegrationStatus>("/integrations/status") });
+  if (errorsQuery.isLoading && errorsQuery.data === undefined) return <LoadingState title="Carregando o diário de erros" description="Lendo as lacunas conceituais e o estado atual da IA local." />;
+  if (errorsQuery.isError && errorsQuery.data === undefined) return <ErrorState title="Falha ao carregar o diário" description={errorsQuery.error instanceof Error ? errorsQuery.error.message : "O backend não respondeu."} action={<button type="button" className="btn-primary" onClick={() => void errorsQuery.refetch()}>Tentar novamente</button>} />;
+  const errors = errorsQuery.data ?? [];
+  const reload = async () => { await queryClient.invalidateQueries({ queryKey: ["errors"] }); await queryClient.invalidateQueries({ queryKey: ["flashcards"] }); };
+  const handleSave = async (payload: Record<string, unknown>) => { const sanitized = normalizeNullableFields(payload, ["date", "topicId", "bookId"]); try { if (editing) { await api.patch(`/errors/${editing.id}`, sanitized); toast.success("Erro atualizado."); } else { await api.post("/errors", sanitized); toast.success("Erro criado."); } setEditing(null); await reload(); } catch (error) { toast.error(error instanceof ApiError ? error.message : "Falha ao salvar erro."); } };
+  const handleDelete = async (item: ConceptualError) => { try { await api.delete(`/errors/${item.id}`); toast.success("Erro deletado."); setEditing(null); await reload(); } catch (error) { toast.error(error instanceof ApiError ? error.message : "Falha ao deletar erro."); } };
+  const handleToggleResolved = async (item: ConceptualError) => { try { await api.patch(`/errors/${item.id}`, { resolved: !item.resolved }); await reload(); toast.success(item.resolved ? "Erro reaberto." : "Erro resolvido."); } catch (error) { toast.error(error instanceof ApiError ? error.message : "Falha ao atualizar status."); } };
+  const handleAnalyze = async (item: ConceptualError) => { try { const result = await api.post<{ mode: string }>(`/errors/${item.id}/analyze-ai`); await reload(); if (result.mode === "stub") { toast("Análise salva em modo stub. O texto veio do fallback local."); } else { toast.success("Análise real concluída."); } } catch (error) { toast.error(error instanceof ApiError ? error.message : "Falha ao analisar erro."); } };
+  const handleGenerateCards = async (item: ConceptualError) => { try { const result = await api.post<{ created: number; skipped: number; mode: string }>(`/errors/${item.id}/generate-cards`); await reload(); if (result.mode === "stub") { toast(`Cards gerados com fallback local: ${result.created} novos e ${result.skipped} pulados.`); } else { toast.success(`Cards gerados: ${result.created}. Duplicados pulados: ${result.skipped}.`); } } catch (error) { toast.error(error instanceof ApiError ? error.message : "Falha ao gerar cards."); } };
+  const openCount = errors.filter((item) => !item.resolved).length;
+  const graveCount = errors.filter((item) => item.severity === "grave" && !item.resolved).length;
+  const analyzedCount = errors.filter((item) => !!item.iaAnalysis).length;
+  return <div className="space-y-6"><PageHeader title="Diário de Erros" subtitle="Aqui o objetivo não é só registrar falha: é transformar lacuna em ação com honestidade sobre IA real ou stub." icon={TriangleAlert} actions={<button type="button" className="btn-primary" onClick={() => { setEditing(null); setDialogOpen(true); }}>Novo erro</button>} /><div className="grid gap-3 md:grid-cols-4"><StatusPill label="Abertos" value={`${openCount} erros`} tone="rose" /><StatusPill label="Graves" value={`${graveCount} críticos`} tone="amber" /><StatusPill label="Com análise" value={`${analyzedCount} itens`} tone="cyan" /><StatusPill label="IA" value={getIntegrationValue("Ollama", integrationQuery.data?.ai)} tone={getIntegrationTone(integrationQuery.data?.ai)} detail={integrationQuery.data?.ai.detail} /></div><section className="panel grid gap-3 p-4 md:grid-cols-4"><input className="input md:col-span-2" placeholder="Buscar por lacuna ou contexto" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} /><select className="select" value={filters.severity} onChange={(e) => setFilters({ ...filters, severity: e.target.value })}><option value="">Severidade</option><option value="leve">Leve</option><option value="moderada">Moderada</option><option value="grave">Grave</option></select><select className="select" value={filters.resolved} onChange={(e) => setFilters({ ...filters, resolved: e.target.value })}><option value="">Status</option><option value="false">Abertos</option><option value="true">Resolvidos</option></select></section>{errors.length ? <div className="space-y-4">{errors.map((errorItem) => <ErrorCard key={errorItem.id} errorItem={errorItem} onEdit={(item) => { setEditing(item); setDialogOpen(true); }} onDelete={(item) => void handleDelete(item)} onToggleResolved={(item) => void handleToggleResolved(item)} onAnalyze={(item) => void handleAnalyze(item)} onGenerateCards={(item) => void handleGenerateCards(item)} />)}</div> : <EmptyState title="Nenhum erro registrado" description="Sem erro não existe feedback útil. Registre uma lacuna para alimentar IA, flashcards e prioridade." action={<button type="button" className="btn-primary" onClick={() => setDialogOpen(true)}>Registrar primeiro erro</button>} />}<ErrorFormDialog open={dialogOpen} onOpenChange={setDialogOpen} errorItem={editing} onSave={handleSave} onDelete={handleDelete} /></div>;
+}

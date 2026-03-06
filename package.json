@@ -1,0 +1,19 @@
+{
+  "name": "ita-prep-local",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "install:all": "npm install --workspaces",
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:api": "npm --workspace apps/api run dev",
+    "build:web": "npm --workspace apps/web run build",
+    "build:api": "npm --workspace apps/api run build",
+    "prisma:generate": "npm --workspace apps/api run prisma:generate",
+    "prisma:migrate": "npm --workspace apps/api run prisma:migrate",
+    "desktop": "npm --workspace apps/web run build && npm --workspace apps/desktop run dev",
+    "desktop:open": "npm run desktop"
+  }
+}
