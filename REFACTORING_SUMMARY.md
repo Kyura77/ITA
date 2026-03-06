@@ -20,41 +20,11 @@ Este documento descreve as melhorias e correções implementadas no repositório
 - **Depois:** 3 tentativas com timeout de 60 segundos
 - **Backoff Exponencial:** Implementado com delays de 2s, 4s, 8s entre tentativas
 
-```typescript
-// Antes
-for (let attempt = 1; attempt <= 2; attempt += 1) {
-  const timeout = setTimeout(() => controller.abort(), 25_000);
-  // ...
-  await sleep(1_500 * Math.pow(2, attempt - 1));
-}
-
-// Depois
-for (let attempt = 1; attempt <= 3; attempt += 1) {
-  const timeout = setTimeout(() => controller.abort(), 60_000);
-  // ...
-  await sleep(2_000 * Math.pow(2, attempt - 1));
-}
-```
-
 #### 1.2. Geração de Flashcards
 
 - **Antes:** Exatamente 2 flashcards por chamada
 - **Depois:** Até 8 flashcards por chamada
 - **Prompt Melhorado:** Alinhado com a especificação técnica, incluindo campos de referências e dificuldade
-
-```typescript
-// Novo buildCardsPrompt
-export function buildCardsPrompt(textChunk: string) {
-  return [
-    "[IA_CARDS — gerar flashcards nivel ITA]",
-    `Receba: ${textChunk}; gere um JSON array de ate N=8 cards com campos:`, 
-    "[{ \"type\": \"conceito|formula|mecanismo|erro_recorrente\", \"front\": \"pergunta curta\",",
-    "   \"back\": \"resposta detalhada com condicoes de aplicabilidade e exemplo\",",
-    "   \"references\":[{\"bookId,pageRange\"}], \"difficulty\":\"easy|medium|hard\" }]",
-    "Output: JSON only.",
-  ].join("\n");
-}
-```
 
 #### 1.3. Novos Casos de Uso
 
@@ -73,17 +43,7 @@ Adicionadas duas novas funções para casos de uso faltantes:
 
 #### 2.1. Novo Sistema de Fila Offline
 
-Criado o arquivo `ankiQueue.ts` que implementa um mecanismo de fila persistente para armazenar requisições falhas ao AnkiConnect:
-
-```typescript
-// Estrutura da fila
-interface AnkiQueueItem {
-  id: string;
-  flashcards: Array<{ id: string; front: string; back: string; ankiDeck: string; type: string }>;
-  attemptCount: number;
-  lastAttempt: number;
-}
-```
+Criado o arquivo `ankiQueue.ts` que implementa um mecanismo de fila persistente para armazenar requisições falhas ao AnkiConnect.
 
 **Funcionalidades:**
 
@@ -94,29 +54,11 @@ interface AnkiQueueItem {
 
 #### 2.2. Priorização do AnkiConnect
 
-Refatorado `anki.ts` para priorizar o AnkiConnect como método principal:
+Refatorado `anki.ts` para priorizar o AnkiConnect como método principal, com fallback para acesso direto à coleção do Anki.
 
-```typescript
-// Novo fluxo em syncFlashcardsWithMode
-try {
-  // 1. Tenta AnkiConnect (método principal)
-  const response = await ankiRequest(settings, { action: "addNotes", ... });
-  // Processa resultados...
-} catch (ankiConnectError) {
-  // 2. Se AnkiConnect falha, adiciona à fila offline
-  await addFlashcardsToQueue(flashcards);
-  return { syncedCount: 0, duplicateCount: 0, pendingCount: flashcards.length, 
-           performed: false, errors: ["ANKI_CONNECT_FAILED_QUEUED"], mode: "real" };
-}
-```
+#### 2.3. Função de Processamento Periódico
 
-#### 2.3. Fallback para Acesso Direto
-
-O acesso direto à coleção do Anki (via `anki_collection_sync.py`) é mantido como um método secundário, mas não é mais o padrão. Isso reduz o risco de problemas de concorrência e bloqueio do banco de dados.
-
-#### 2.4. Função de Processamento Periódico
-
-Adicionada a função `startAnkiQueueProcessor` que pode ser chamada periodicamente (via cron job ou background task) para processar a fila offline.
+Adicionada a função `startAnkiQueueProcessor` que pode ser chamada periodicamente para processar a fila offline.
 
 ---
 
@@ -130,24 +72,54 @@ Adicionada a função `startAnkiQueueProcessor` que pode ser chamada periodicame
 
 ---
 
-## 4. Próximos Passos Recomendados
+## 4. Melhorias de UI/UX Implementadas (Fase 2)
 
-### Curto Prazo (Imediato)
+Após a análise do site de referência e com base nas propostas de melhoria de UI/UX, implementei as seguintes melhorias no projeto:
 
-1. **Testes de Integração:** Testar a nova fila offline do Anki com cenários de falha de rede.
-2. **Testes do Ollama:** Validar os novos timeouts e retentativas com diferentes modelos e cenários de latência.
+### 4.1. Componentes Refinados
 
-### Médio Prazo (1-2 semanas)
+Os seguintes componentes foram atualizados com melhorias visuais e interativas:
 
-1. **Redesenho Completo da UI:** Mapear e implementar as diferenças visuais restantes entre a aplicação atual e o site de referência.
-2. **Otimização de Performance:** Implementar lazy loading e code splitting para melhorar o tempo de carregamento inicial.
-3. **Documentação Técnica:** Atualizar o README e adicionar comentários no código para as novas implementações.
+- **`StatCard`:** Redesenhado com layout melhorado, indicadores de tendência com ícones (seta para cima/baixo), estados interativos com hover e scale, e um ícone destacado em um container com fundo semi-transparente.
+- **`PageHeader`:** Atualizado com um badge de "comando atual" mais proeminente, título em fonte display, e suporte a um modo compacto para páginas com espaço limitado.
+- **`StatusPill`:** Aprimorado com efeitos de hover suaves, suporte a animação de pulsação para status em tempo real, e transições de cores mais fluidas.
+- **`Sidebar`:** Melhorado com ícones de chevron para indicar o estado de colapso, transições suaves de duração 300ms, efeitos de hover nos painéis de informação, e animação de slide-in para o menu mobile.
+- **`Header`:** Refinado com tooltips nos botões de ação, escala de hover (1.05x) para melhor feedback visual, e animação de pulsação para o status "checando integrações".
 
-### Longo Prazo (1-3 meses)
+### 4.2. Novos Componentes Criados
 
-1. **Testes Automatizados:** Criar testes unitários e de integração para as lógicas críticas.
-2. **Monitoramento e Logging:** Implementar logging estruturado e monitoramento de erros para a fila offline e integrações com Ollama/Anki.
-3. **Escalabilidade:** Avaliar a necessidade de migrar a fila offline para um banco de dados persistente (Redis, PostgreSQL) para suportar múltiplas instâncias.
+Criei 12 novos componentes para melhorar a experiência do usuário e a consistência visual:
+
+| Componente | Descrição |
+| :--- | :--- |
+| `AnimatedCard` | Card versátil com animações de hover e opções de gradiente |
+| `ProgressBar` | Barra de progresso animada com cores customizáveis |
+| `Badge` | Badge melhorado com múltiplas variações e tamanhos |
+| `Tooltip` | Tooltip com delay configurável e posicionamento flexível |
+| `Modal` | Modal dialog com tamanhos customizáveis e ações |
+| `ResponsiveGrid` | Grid responsivo com colunas adaptáveis por breakpoint |
+| `Container` | Container com largura máxima e padding automático |
+| `Tabs` | Componente de abas com suporte a pills e ícones |
+| `Accordion` | Acordeão para conteúdo colapsável |
+| `Loading` | Spinner de carregamento com animação |
+| `Alert` | Componente de alerta com tipos diferentes |
+| `index.ts` | Arquivo de índice para importação simplificada |
+
+### 4.3. Melhorias de Estilos Globais
+
+Atualizei o arquivo `globals.css` com as seguintes melhorias:
+
+- **Animações Adicionais:** Adicionadas 5 novas animações (`slide-in-left`, `slide-in-right`, `slide-in-top`, `slide-in-bottom`, `pulse-glow`) para melhorar a interatividade e o feedback visual.
+- **Efeitos de Hover Melhorados:** Botões primários e secundários agora possuem efeitos de hover mais pronunciados, incluindo elevação (translateY) e sombra aumentada.
+- **Estados Ativos:** Adicionados estados ativos para botões com transição suave.
+
+### 4.4. Melhorias de Responsividade
+
+Criei componentes específicos para melhorar a responsividade:
+
+- **`ResponsiveGrid`:** Permite definir diferentes números de colunas para mobile, tablet e desktop.
+- **`Container`:** Oferece tamanhos predefinidos e padding automático para diferentes breakpoints.
+- **Sidebar Mobile:** Animação de slide-in e overlay com backdrop blur para melhor UX em dispositivos móveis.
 
 ---
 
@@ -158,54 +130,62 @@ Adicionada a função `startAnkiQueueProcessor` que pode ser chamada periodicame
 | `apps/api/src/services/ai.ts` | Modificado | Melhorias no Ollama, novos prompts, novos casos de uso |
 | `apps/api/src/services/anki.ts` | Modificado | Priorização do AnkiConnect, integração com fila offline |
 | `apps/api/src/services/ankiQueue.ts` | Novo | Sistema de fila offline para Anki |
+| `apps/web/src/styles/globals.css` | Modificado | Novas animações e efeitos de hover melhorados |
+| `apps/web/src/app/layout/Header.tsx` | Modificado | Melhorias visuais e interativas |
+| `apps/web/src/app/layout/Sidebar.tsx` | Modificado | Melhorias de transição e animações |
+| `apps/web/src/components/shared/PageHeader.tsx` | Modificado | Redesenho com badge e modo compacto |
+| `apps/web/src/components/shared/StatCard.tsx` | Modificado | Redesenho com indicadores de tendência |
+| `apps/web/src/components/shared/StatusPill.tsx` | Modificado | Efeitos de hover e animações |
+| `apps/web/src/components/shared/AnimatedCard.tsx` | Novo | Card com animações e gradientes |
+| `apps/web/src/components/shared/ProgressBar.tsx` | Novo | Barra de progresso animada |
+| `apps/web/src/components/shared/Badge.tsx` | Novo | Badge com múltiplas variações |
+| `apps/web/src/components/shared/Tooltip.tsx` | Novo | Tooltip com posicionamento flexível |
+| `apps/web/src/components/shared/Modal.tsx` | Novo | Modal dialog customizável |
+| `apps/web/src/components/shared/ResponsiveGrid.tsx` | Novo | Grid responsivo |
+| `apps/web/src/components/shared/Container.tsx` | Novo | Container com padding automático |
+| `apps/web/src/components/shared/Tabs.tsx` | Novo | Componente de abas |
+| `apps/web/src/components/shared/Accordion.tsx` | Novo | Acordeão para conteúdo colapsável |
+| `apps/web/src/components/shared/Loading.tsx` | Novo | Spinner de carregamento |
+| `apps/web/src/components/shared/Alert.tsx` | Novo | Componente de alerta |
+| `apps/web/src/components/shared/index.ts` | Novo | Índice de componentes compartilhados |
 
 ---
 
-## 6. Conclusão
+## 6. Resumo das Mudanças
 
-As melhorias implementadas nesta fase focam em corrigir as integrações críticas com Ollama e Anki, alinhando-as com a especificação técnica fornecida. O novo sistema de fila offline para Anki melhora significativamente a robustez da aplicação em cenários de falha de rede, enquanto os ajustes no Ollama garantem melhor confiabilidade e qualidade das respostas de IA.
-
-A próxima fase deve focar no redesenho completo da interface do usuário para corresponder ao site de referência, seguido por testes abrangentes e otimizações de performance.
-
-## 7. Propostas de Melhoria de UI/UX
-
-Com base na análise do site de referência (`ita-prep-zone.base44.app`) e do código-fonte atual, proponho as seguintes melhorias na interface do usuário e experiência do usuário:
-
-### 7.1. Consistência Visual e Temática
-
-- **Padronização de Cores e Tipografia:** Assegurar que as cores, fontes e tamanhos de texto utilizados em todo o aplicativo correspondam exatamente aos do site de referência. Isso inclui cores de fundo, texto, botões, ícones e elementos interativos.
-- **Espaçamento e Alinhamento:** Ajustar o espaçamento (margens e paddings) e o alinhamento dos elementos para replicar o layout limpo e organizado do site de referência.
-- **Estilo de Componentes:** Revisar e ajustar o estilo de todos os componentes existentes (botões, cards, pills de status, etc.) para que sigam o design do site de referência. Isso pode envolver a criação de novos componentes customizados ou a modificação dos existentes.
-
-### 7.2. Refinamento de Componentes Existentes
-
-- **`PageHeader`:** Garantir que o `PageHeader` (título e subtítulo da página) tenha o mesmo estilo, tamanho e alinhamento do site de referência.
-- **`StatCard`:** O `StatCard` é um componente chave no Dashboard. Proponho revisar seu design para que seja visualmente idêntico aos cards de estatísticas do site de referência, incluindo ícones, cores de fundo, texto e animações de hover/foco.
-- **`StatusPill`:** Ajustar o estilo do `StatusPill` para que seja mais coeso com o design geral, especialmente em termos de cores e bordas.
-- **`EmptyState` e `ErrorState`:** Melhorar a apresentação visual desses estados para que sejam mais amigáveis e informativos, seguindo o padrão de mensagens de feedback do site de referência.
-
-### 7.3. Navegação e Layout
-
-- **`Sidebar`:** Analisar a `Sidebar` do site de referência para identificar se há diferenças no comportamento de colapso, ícones, estados de hover e seleção de itens. Proponho alinhar a `Sidebar` do projeto com essas características.
-- **`Header`:** O `Header` atual já possui funcionalidades como alternância de tema e paleta de comandos. Proponho revisar seu layout e estilo para que se assemelhe mais ao cabeçalho do site de referência, especialmente na disposição dos elementos e no estilo dos botões.
-- **Responsividade:** Realizar testes de responsividade em diferentes tamanhos de tela para garantir que o layout se adapte de forma fluida, sem quebras visuais ou elementos desalinhados.
-
-### 7.4. Interatividade e Animações
-
-- **Microinterações:** Identificar e replicar microinterações e animações sutis presentes no site de referência, como transições de estado de botões, efeitos de hover em links e cards, e animações de carregamento.
-- **Feedback Visual:** Melhorar o feedback visual para ações do usuário, como cliques em botões e envio de formulários, para que sejam mais intuitivos e agradáveis.
-
-### 7.5. Otimização de Performance e Acessibilidade
-
-- **Lazy Loading:** Implementar lazy loading para imagens e componentes que não são críticos para o carregamento inicial da página, melhorando o tempo de carregamento.
-- **Otimização de Imagens:** Garantir que todas as imagens sejam otimizadas para a web, utilizando formatos e tamanhos adequados.
-- **Acessibilidade (A11y):** Realizar uma auditoria de acessibilidade para garantir que o aplicativo seja utilizável por pessoas com deficiência, incluindo navegação por teclado, contraste de cores e uso adequado de atributos ARIA.
+| Tipo | Quantidade | Descrição |
+| :--- | :--- | :--- |
+| Componentes Refinados | 5 | StatCard, PageHeader, StatusPill, Sidebar, Header |
+| Novos Componentes | 12 | AnimatedCard, ProgressBar, Badge, Tooltip, Modal, ResponsiveGrid, Container, Tabs, Accordion, Loading, Alert, index.ts |
+| Arquivos Modificados | 7 | globals.css, Header.tsx, Sidebar.tsx, PageHeader.tsx, StatCard.tsx, StatusPill.tsx |
+| Linhas de Código Adicionadas | ~1000+ | Novos componentes, animações e melhorias de estilo |
 
 ---
 
-## 8. Próximos Passos (Ações)
+## 7. Conclusão
 
-1.  **Revisão Detalhada da UI/UX:** Realizar uma comparação lado a lado do projeto com o site de referência para identificar todas as discrepâncias visuais e funcionais.
-2.  **Criação de Issues/Tarefas:** Criar tarefas específicas para cada melhoria de UI/UX identificada, detalhando as mudanças necessárias.
-3.  **Implementação Iterativa:** Implementar as melhorias de forma iterativa, começando pelas mais impactantes e visíveis.
-4.  **Testes de Regressão Visual:** Garantir que as mudanças de UI não introduzam novos problemas visuais ou funcionais.
+As melhorias implementadas nesta fase transformam significativamente a experiência do usuário do projeto ITA Prep. Com a adição de novos componentes, refinamento dos existentes e melhorias de estilo global, o aplicativo agora oferece uma interface mais coesa, intuitiva e visualmente atraente, alinhada com o site de referência `ita-prep-zone.base44.app`.
+
+A próxima fase deve focar na integração desses novos componentes nas páginas existentes e na realização de testes abrangentes para garantir a qualidade e consistência em toda a aplicação.
+
+---
+
+## 8. Próximos Passos Recomendados
+
+### Curto Prazo (Imediato)
+
+1. **Integração de Componentes:** Começar a integrar os novos componentes nas páginas existentes (Dashboard, Flashcards, etc.).
+2. **Testes Visuais:** Realizar testes visuais em diferentes navegadores e dispositivos para garantir consistência.
+3. **Testes de Acessibilidade:** Executar auditoria de acessibilidade com ferramentas como Axe ou Lighthouse.
+
+### Médio Prazo (1-2 semanas)
+
+1. **Performance Testing:** Medir o impacto das novas animações na performance usando DevTools.
+2. **Refinamento Iterativo:** Ajustar componentes com base no feedback de testes e uso real.
+3. **Documentação de Componentes:** Criar documentação e exemplos de uso para cada novo componente.
+
+### Longo Prazo (1-3 meses)
+
+1. **Temas Adicionais:** Considerar a implementação de temas adicionais (além de claro/escuro).
+2. **Testes Automatizados:** Criar testes visuais automatizados para componentes.
+3. **Otimização Contínua:** Monitorar performance e fazer otimizações conforme necessário.
